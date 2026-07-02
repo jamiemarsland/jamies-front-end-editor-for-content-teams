@@ -1,0 +1,7 @@
+# WordPress.org listing assets (icon, banner, screenshots, blueprint) — synced to
+# the SVN assets/ directory on release, never shipped inside the plugin zip.
+.wordpress-org
+.wordpress-org/**
+
+# Don't ship the ignore file itself.
+.pressshipignore

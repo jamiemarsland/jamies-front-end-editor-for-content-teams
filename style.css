@@ -1,0 +1,188 @@
+/* Frontend Inline Editor */
+
+/* Smooth scrolling for the whole page */
+html {
+	scroll-behavior: smooth;
+}
+
+/* Toolbar — fixed bar at top when editing */
+.fie-toolbar {
+	position: fixed;
+	top: 32px; /* Below the WP admin bar */
+	left: 0;
+	right: 0;
+	z-index: 99999;
+	background: #1e1e1e;
+	color: #fff;
+	box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* No admin bar (restricted users) */
+body:not(.admin-bar) .fie-toolbar {
+	top: 0;
+}
+
+@media screen and (max-width: 782px) {
+	.fie-toolbar {
+		top: 46px; /* Admin bar is taller on mobile */
+	}
+
+	body:not(.admin-bar) .fie-toolbar {
+		top: 0;
+	}
+}
+
+/* Floating user menu — bottom right */
+.fie-user-fab {
+	position: fixed;
+	bottom: 24px;
+	right: 24px;
+	z-index: 99998;
+}
+
+.fie-fab-toggle {
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	border: none;
+	background: #1e1e1e;
+	color: #fff;
+	font-size: 20px;
+	cursor: pointer;
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: background 0.15s ease;
+}
+
+.fie-fab-toggle:hover {
+	background: #333;
+}
+
+.fie-fab-menu {
+	display: none;
+	position: absolute;
+	bottom: 54px;
+	right: 0;
+	background: #1e1e1e;
+	border-radius: 8px;
+	padding: 12px 16px;
+	min-width: 160px;
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.fie-user-fab[open] .fie-fab-menu {
+	display: block;
+}
+
+.fie-fab-greeting {
+	font-size: 13px;
+	color: #999;
+	margin-bottom: 10px;
+	display: block;
+}
+
+.fie-fab-logout {
+	display: block;
+	font-size: 13px;
+	color: #ccc;
+	text-decoration: none;
+	padding: 6px 0;
+}
+
+.fie-fab-logout:hover {
+	color: #fff;
+}
+
+.fie-toolbar[hidden] {
+	display: none;
+}
+
+.fie-toolbar-inner {
+	max-width: 1200px;
+	margin: 0 auto;
+	padding: 8px 24px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.fie-toolbar-label {
+	font-size: 13px;
+	font-weight: 600;
+	margin-right: 4px;
+	opacity: 0.7;
+}
+
+/* Buttons */
+.fie-btn {
+	border: none;
+	border-radius: 4px;
+	padding: 6px 16px;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.fie-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.fie-btn-save {
+	background: #3858e9;
+	color: #fff;
+}
+
+.fie-btn-save:hover:not(:disabled) {
+	background: #2145d4;
+}
+
+.fie-btn-cancel {
+	background: transparent;
+	color: #ccc;
+	border: 1px solid #555;
+}
+
+.fie-btn-cancel:hover:not(:disabled) {
+	color: #fff;
+	border-color: #888;
+}
+
+.fie-message {
+	font-size: 13px;
+	color: #86efac;
+	margin-left: 4px;
+}
+
+/* Editable block wrapper */
+.fie-block {
+	cursor: default;
+	transition: outline 0.15s ease;
+	border-radius: 3px;
+}
+
+.fie-block:hover {
+	outline: 2px dashed #cbd5e1;
+	outline-offset: 4px;
+}
+
+/* Active editing state */
+.fie-block.fie-active {
+	outline: 2px solid #3858e9;
+	outline-offset: 4px;
+}
+
+.fie-block.fie-active [contenteditable="true"]:focus {
+	outline: none;
+}
+
+/* The account toggle is a <summary>; hide the default disclosure marker. */
+.fie-fab-toggle {
+	list-style: none;
+}
+
+.fie-fab-toggle::-webkit-details-marker {
+	display: none;
+}
