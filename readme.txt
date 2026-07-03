@@ -4,7 +4,7 @@ Tags: frontend editing, inline editor, interactivity api, block editor
 Requires at least: 6.5
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.1
+Stable tag: 0.2
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -50,6 +50,9 @@ By default, paragraphs and headings. You can configure this in Settings > Front-
 Only logged-in users who already have permission to edit the post. The editing UI is never shown to visitors.
 
 == Changelog ==
+
+= 0.2 =
+* Added a live demo preview (WordPress Playground blueprint).
 
 = 0.1 =
 * Initial release.

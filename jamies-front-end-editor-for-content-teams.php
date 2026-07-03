@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Jamie's Front-End Editor for Content Teams
  * Description: Simple front-end text editing for your team. Click any text block to edit it on the live site — block markup is preserved.
- * Version: 0.1
+ * Version: 0.2
  * Requires at least: 6.5
  * Requires PHP: 8.0
  * Author: Jamie Marsland
