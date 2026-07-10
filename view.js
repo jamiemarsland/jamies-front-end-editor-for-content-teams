@@ -110,3 +110,21 @@ function fie_resetState( state ) {
 	state.activeBlockIndex = null;
 	state.originalHTML = '';
 }
+
+/**
+ * "Edit with Frontend" admin bar link — jumps to the first editable block
+ * on the page and activates it, reusing the existing click-to-edit directive
+ * so the Interactivity API's context/element tracking stays correct.
+ */
+document.addEventListener( 'click', ( event ) => {
+	const trigger = event.target.closest( '.jfect-edit-frontend-toolbar-item' );
+	if ( ! trigger ) return;
+
+	event.preventDefault();
+
+	const target = document.querySelector( '.fie-block' );
+	if ( ! target ) return;
+
+	target.scrollIntoView( { behavior: 'smooth', block: 'center' } );
+	target.click();
+} );

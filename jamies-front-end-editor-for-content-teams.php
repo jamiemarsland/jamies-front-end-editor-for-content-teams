@@ -36,6 +36,14 @@ define( 'JFECT_DEFAULT_BLOCKS', array(
 ) );
 
 /**
+ * Default editable post types (used before settings are saved).
+ */
+define( 'JFECT_DEFAULT_POST_TYPES', array(
+	'post',
+	'page',
+) );
+
+/**
  * Get the list of editable block types from settings.
  */
 function jfect_get_editable_blocks() {
@@ -48,6 +56,32 @@ function jfect_get_editable_blocks() {
 	$saved = get_option( 'jfect_editable_blocks' );
 	$blocks = is_array( $saved ) ? $saved : JFECT_DEFAULT_BLOCKS;
 	return $blocks;
+}
+
+/**
+ * Get the list of post types that support front-end editing.
+ */
+function jfect_get_editable_post_types() {
+	static $post_types = null;
+
+	if ( $post_types !== null ) {
+		return $post_types;
+	}
+
+	$saved      = get_option( 'jfect_editable_post_types' );
+	$post_types = is_array( $saved ) ? $saved : JFECT_DEFAULT_POST_TYPES;
+	return $post_types;
+}
+
+/**
+ * Post types eligible to be offered in the settings screen —
+ * public, UI-visible post types.
+ */
+function jfect_get_available_post_types() {
+	return get_post_types( array(
+		'public'  => true,
+		'show_ui' => true,
+	), 'objects' );
 }
 
 /**
@@ -81,6 +115,12 @@ add_action( 'admin_init', function () {
 		'type'              => 'array',
 		'sanitize_callback' => 'jfect_sanitize_roles',
 		'default'           => array(),
+	) );
+
+	register_setting( 'jfect_settings', 'jfect_editable_post_types', array(
+		'type'              => 'array',
+		'sanitize_callback' => 'jfect_sanitize_post_types',
+		'default'           => JFECT_DEFAULT_POST_TYPES,
 	) );
 } );
 
@@ -161,10 +201,21 @@ function jfect_sanitize_blocks( $input ) {
 	return array_values( array_intersect( $input, array_keys( JFECT_SUPPORTED_BLOCKS ) ) );
 }
 
+function jfect_sanitize_post_types( $input ) {
+	if ( ! is_array( $input ) ) {
+		return JFECT_DEFAULT_POST_TYPES;
+	}
+
+	$valid_post_types = array_keys( jfect_get_available_post_types() );
+	return array_values( array_intersect( $input, $valid_post_types ) );
+}
+
 function jfect_settings_page() {
-	$editable   = jfect_get_editable_blocks();
-	$restricted = jfect_get_restricted_roles();
-	$all_roles  = wp_roles()->roles;
+	$editable        = jfect_get_editable_blocks();
+	$restricted      = jfect_get_restricted_roles();
+	$all_roles       = wp_roles()->roles;
+	$editable_types  = jfect_get_editable_post_types();
+	$available_types = jfect_get_available_post_types();
 	?>
 	<div class="wrap">
 		<h1>Jamie's Front-End Editor for Content Teams</h1>
@@ -172,10 +223,30 @@ function jfect_settings_page() {
 			<?php settings_fields( 'jfect_settings' ); ?>
 			<table class="form-table" role="presentation">
 				<tr>
-					<th scope="row">Editable blocks</th>
+					<th scope="row"><?php echo esc_html__('Editable post types', 'jamies-front-end-editor-for-content-teams') ?></th>
 					<td>
 						<fieldset>
-							<p class="description" style="margin-bottom:10px;">Which block types can be edited from the front end.</p>
+							<p class="description" style="margin-bottom:10px;"><?php echo esc_html__('Which post types can be edited from the front end.', 'jamies-front-end-editor-for-content-teams') ?></p>
+							<?php foreach ( $available_types as $post_type_slug => $post_type_obj ) : ?>
+								<label style="display:block;margin-bottom:8px;">
+									<input
+										type="checkbox"
+										name="jfect_editable_post_types[]"
+										value="<?php echo esc_attr( $post_type_slug ); ?>"
+										<?php checked( in_array( $post_type_slug, $editable_types, true ) ); ?>
+									/>
+									<?php echo esc_html( $post_type_obj->labels->singular_name ); ?>
+									<code style="color:#666;margin-left:4px;"><?php echo esc_html( $post_type_slug ); ?></code>
+								</label>
+							<?php endforeach; ?>
+						</fieldset>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><?php echo esc_html__('Editable blocks', 'jamies-front-end-editor-for-content-teams') ?></th>
+					<td>
+						<fieldset>
+							<p class="description" style="margin-bottom:10px;"><?php echo esc_html__('Which block types can be edited from the front end.', 'jamies-front-end-editor-for-content-teams') ?></p>
 							<?php foreach ( JFECT_SUPPORTED_BLOCKS as $block_name => $label ) : ?>
 								<label style="display:block;margin-bottom:8px;">
 									<input
@@ -192,10 +263,10 @@ function jfect_settings_page() {
 					</td>
 				</tr>
 				<tr>
-					<th scope="row">Frontend-only roles</th>
+					<th scope="row"><?php echo esc_html__('Frontend-only roles', 'jamies-front-end-editor-for-content-teams') ?></th>
 					<td>
 						<fieldset>
-							<p class="description" style="margin-bottom:10px;">These roles will be redirected away from wp-admin and can only edit via the front end. The admin bar will be hidden for them. REST API access is preserved so saves still work.</p>
+							<p class="description" style="margin-bottom:10px;"><?php echo esc_html__('These roles will be redirected away from wp-admin and can only edit via the front end. The admin bar will be hidden for them. REST API access is preserved so saves still work.', 'jamies-front-end-editor-for-content-teams') ?></p>
 							<?php foreach ( $all_roles as $role_slug => $role_data ) : ?>
 								<?php if ( $role_slug === 'administrator' ) continue; // Never restrict admins. ?>
 								<label style="display:block;margin-bottom:8px;">
@@ -247,6 +318,11 @@ function jfect_should_render() {
 
 	$post_id = get_queried_object_id();
 	if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+		$should = false;
+		return false;
+	}
+
+	if ( ! in_array( get_post_type( $post_id ), jfect_get_editable_post_types(), true ) ) {
 		$should = false;
 		return false;
 	}
@@ -365,6 +441,31 @@ add_filter( 'render_block', function ( $block_content, $block ) {
 }, 10, 2 );
 
 /**
+ * Add an "Edit with Frontend" link to the WordPress admin bar when viewing
+ * a singular post/page that has at least one editable block on it.
+ */
+add_action( 'admin_bar_menu', function ( $wp_admin_bar ) {
+	if ( ! jfect_should_render() ) {
+		return;
+	}
+
+	$map = jfect_get_post_block_map();
+	if ( empty( $map ) ) {
+		return;
+	}
+
+	$wp_admin_bar->add_node( array(
+		'id'    => 'jfect-edit-frontend',
+		'title' => esc_html__( 'Edit with Frontend Editor', 'jamies-front-end-editor-for-content-teams' ),
+		'href'  => '#',
+		'meta'  => array(
+			'class' => 'jfect-edit-frontend-toolbar-item',
+			'title' => esc_attr__( 'Jump into front-end editing', 'jamies-front-end-editor-for-content-teams' ),
+		),
+	) );
+}, 100 );
+
+/**
  * Add the toolbar to wp_footer.
  */
 add_action( 'wp_footer', function () {
@@ -375,9 +476,9 @@ add_action( 'wp_footer', function () {
 	<div data-wp-interactive="jamies-front-end-editor-for-content-teams" class="fie-toolbar-wrap">
 		<div class="fie-toolbar" data-wp-bind--hidden="!state.isEditing">
 			<div class="fie-toolbar-inner">
-				<span class="fie-toolbar-label">Editing</span>
-				<button class="fie-btn fie-btn-save" data-wp-on--click="actions.save" data-wp-bind--disabled="state.isSaving">Save</button>
-				<button class="fie-btn fie-btn-cancel" data-wp-on--click="actions.cancel" data-wp-bind--disabled="state.isSaving">Cancel</button>
+				<span class="fie-toolbar-label"><?php echo esc_html__( 'Editing', 'jamies-front-end-editor-for-content-teams' ); ?></span>
+				<button class="fie-btn fie-btn-save" data-wp-on--click="actions.save" data-wp-bind--disabled="state.isSaving"><?php echo esc_html__( 'Save', 'jamies-front-end-editor-for-content-teams' ); ?></button>
+				<button class="fie-btn fie-btn-cancel" data-wp-on--click="actions.cancel" data-wp-bind--disabled="state.isSaving"><?php echo esc_html__( 'Cancel', 'jamies-front-end-editor-for-content-teams' ); ?></button>
 				<span class="fie-message" data-wp-text="state.message"></span>
 			</div>
 		</div>
@@ -404,8 +505,8 @@ add_action( 'wp_footer', function () {
 	<details class="fie-user-fab">
 		<summary class="fie-fab-toggle" title="Account">&#9881;</summary>
 		<div class="fie-fab-menu">
-			<span class="fie-fab-greeting">Hi, <?php echo esc_html( wp_get_current_user()->display_name ); ?></span>
-			<a href="<?php echo esc_url( wp_logout_url( home_url( '/' ) ) ); ?>" class="fie-fab-logout">Log out</a>
+			<span class="fie-fab-greeting"><?php echo esc_html__( 'Hi, ', 'jamies-front-end-editor-for-content-teams' ); ?><?php echo esc_html( wp_get_current_user()->display_name ); ?></span>
+			<a href="<?php echo esc_url( wp_logout_url( home_url( '/' ) ) ); ?>" class="fie-fab-logout"><?php echo esc_html__( 'Log out', 'jamies-front-end-editor-for-content-teams' ); ?></a>
 		</div>
 	</details>
 	<?php
@@ -421,7 +522,9 @@ add_action( 'rest_api_init', function () {
 		'callback'            => 'jfect_update_block',
 		'permission_callback' => function ( $request ) {
 			$post_id = absint( $request->get_param( 'postId' ) );
-			return $post_id && current_user_can( 'edit_post', $post_id );
+			return $post_id
+				&& current_user_can( 'edit_post', $post_id )
+				&& in_array( get_post_type( $post_id ), jfect_get_editable_post_types(), true );
 		},
 		'args'                => array(
 			'postId'     => array(
