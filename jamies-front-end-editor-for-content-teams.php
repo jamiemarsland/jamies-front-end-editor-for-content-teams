@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Jamie's Front-End Editor for Content Teams
  * Description: Simple front-end text editing for your team. Click any text block to edit it on the live site — block markup is preserved.
- * Version: 0.2
+ * Version: 0.3
  * Requires at least: 6.5
  * Requires PHP: 8.0
  * Author: Jamie Marsland
@@ -34,6 +34,59 @@ define( 'JFECT_DEFAULT_BLOCKS', array(
 	'core/paragraph',
 	'core/heading',
 ) );
+
+/**
+ * CSS classes that lock a block (and everything inside it) from front-end editing.
+ * Users add one of these via a block's Advanced > Additional CSS class(es).
+ */
+define( 'JFECT_LOCK_CLASSES', array( 'fie-no-edit', 'fie-lock' ) );
+
+/**
+ * Post meta key that locks an entire page/post from front-end editing.
+ */
+define( 'JFECT_PAGE_LOCK_META', '_jfect_lock_page' );
+
+/**
+ * Whether a parsed block is locked from front-end editing.
+ *
+ * Two ways to lock a block:
+ *   1. WordPress's native block lock (the padlock: Options > Lock). Any lock
+ *      restriction (move and/or remove) marks the block as read-only here.
+ *   2. Adding one of the JFECT_LOCK_CLASSES CSS classes in the Advanced panel.
+ *
+ * Either way, the lock also applies to everything nested inside the block
+ * (handled by ancestry propagation in jfect_flatten_blocks()).
+ */
+function jfect_block_is_locked( $block ) {
+	// 1. Native block lock attribute, e.g. {"lock":{"move":true,"remove":true}}.
+	if ( isset( $block['attrs']['lock'] ) && is_array( $block['attrs']['lock'] ) ) {
+		foreach ( $block['attrs']['lock'] as $value ) {
+			if ( $value ) {
+				return true;
+			}
+		}
+	}
+
+	// 2. CSS class marker.
+	$class = isset( $block['attrs']['className'] ) ? $block['attrs']['className'] : '';
+	if ( '' !== $class ) {
+		$classes = preg_split( '/\s+/', $class );
+		foreach ( JFECT_LOCK_CLASSES as $lock ) {
+			if ( in_array( $lock, $classes, true ) ) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Whether an entire post is locked from front-end editing.
+ */
+function jfect_is_page_locked( $post_id ) {
+	return (bool) get_post_meta( $post_id, JFECT_PAGE_LOCK_META, true );
+}
 
 /**
  * Get the list of editable block types from settings.
@@ -214,9 +267,97 @@ function jfect_settings_page() {
 			</table>
 			<?php submit_button(); ?>
 		</form>
+
+		<hr />
+		<h2>Locking content</h2>
+		<p class="description" style="max-width:640px;">
+			You can stop your team editing certain things:
+		</p>
+		<ul style="list-style:disc;margin-left:20px;max-width:640px;">
+			<li><strong>Lock a whole page:</strong> open the page in the editor and tick <em>Lock this page</em> in the &ldquo;Front-End Editing&rdquo; box (right-hand sidebar).</li>
+			<li><strong>Lock one block or section:</strong> select the block (for example a Group that wraps a section), open its <em>Options</em> menu (the three dots) and choose <em>Lock</em>. That block and everything inside it becomes read-only on the front end. You can also add the CSS class <code>fie-no-edit</code> in the Advanced panel instead.</li>
+		</ul>
 	</div>
 	<?php
 }
+
+/**
+ * Register the page-lock post meta (protected; edited via the meta box below).
+ */
+add_action( 'init', function () {
+	register_meta( 'post', JFECT_PAGE_LOCK_META, array(
+		'type'          => 'boolean',
+		'single'        => true,
+		'show_in_rest'  => false,
+		'auth_callback' => function ( $allowed, $meta_key, $post_id ) {
+			return current_user_can( 'edit_post', $post_id );
+		},
+	) );
+} );
+
+/**
+ * Add a "Front-End Editing" meta box with the page lock toggle.
+ */
+add_action( 'add_meta_boxes', function () {
+	foreach ( get_post_types( array( 'public' => true ) ) as $post_type ) {
+		if ( 'attachment' === $post_type ) {
+			continue;
+		}
+		add_meta_box(
+			'jfect_lock_box',
+			"Front-End Editing",
+			'jfect_render_lock_box',
+			$post_type,
+			'side',
+			'default'
+		);
+	}
+} );
+
+/**
+ * Render the page-lock meta box.
+ */
+function jfect_render_lock_box( $post ) {
+	wp_nonce_field( 'jfect_lock_save', 'jfect_lock_nonce' );
+	$locked = jfect_is_page_locked( $post->ID );
+	?>
+	<label style="display:block;margin-bottom:8px;">
+		<input type="checkbox" name="jfect_lock_page" value="1" <?php checked( $locked ); ?> />
+		Lock this page (disable front-end editing)
+	</label>
+	<p class="description">
+		<?php
+		// Simple help text; only the <code> tag needs to survive.
+		echo wp_kses( 'To lock just one section instead, use the block&rsquo;s <strong>Lock</strong> option (the padlock in its Options menu), or add the CSS class <code>fie-no-edit</code> to it. The lock also covers everything nested inside that block.', array( 'code' => array(), 'strong' => array() ) );
+		?>
+	</p>
+	<?php
+}
+
+/**
+ * Save the page-lock meta box.
+ */
+add_action( 'save_post', function ( $post_id ) {
+	if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+		return;
+	}
+	// Only act when our meta box was actually submitted (keeps REST/autosaves from clearing it).
+	if ( ! isset( $_POST['jfect_lock_nonce'] ) ) {
+		return;
+	}
+	if ( ! wp_verify_nonce( sanitize_key( wp_unslash( $_POST['jfect_lock_nonce'] ) ), 'jfect_lock_save' ) ) {
+		return;
+	}
+	if ( ! current_user_can( 'edit_post', $post_id ) ) {
+		return;
+	}
+
+	if ( ! empty( $_POST['jfect_lock_page'] ) ) {
+		update_post_meta( $post_id, JFECT_PAGE_LOCK_META, 1 );
+	} else {
+		delete_post_meta( $post_id, JFECT_PAGE_LOCK_META );
+	}
+} );
 
 /**
  * Register script module and styles.
@@ -247,6 +388,12 @@ function jfect_should_render() {
 
 	$post_id = get_queried_object_id();
 	if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+		$should = false;
+		return false;
+	}
+
+	// Whole page locked from front-end editing.
+	if ( jfect_is_page_locked( $post_id ) ) {
 		$should = false;
 		return false;
 	}
@@ -284,6 +431,11 @@ function jfect_get_post_block_map() {
 	foreach ( $flat as $index => $entry ) {
 		$block = $entry['block'];
 		if ( ! in_array( $block['blockName'], jfect_get_editable_blocks(), true ) ) {
+			continue;
+		}
+
+		// Skip blocks locked directly or by a locked ancestor container.
+		if ( ! empty( $entry['locked'] ) ) {
 			continue;
 		}
 
@@ -456,6 +608,11 @@ function jfect_update_block( $request ) {
 		return new WP_Error( 'not_found', 'Post not found.', array( 'status' => 404 ) );
 	}
 
+	// Whole page locked from front-end editing.
+	if ( jfect_is_page_locked( $post_id ) ) {
+		return new WP_Error( 'page_locked', 'Front-end editing is locked for this page.', array( 'status' => 403 ) );
+	}
+
 	$blocks = parse_blocks( $post->post_content );
 
 	$flat = array();
@@ -466,6 +623,11 @@ function jfect_update_block( $request ) {
 	}
 
 	$target = $flat[ $block_index ];
+
+	// Block (or a container around it) is locked from front-end editing.
+	if ( ! empty( $target['locked'] ) ) {
+		return new WP_Error( 'block_locked', 'This section is locked from front-end editing.', array( 'status' => 403 ) );
+	}
 
 	if ( ! in_array( $target['block']['blockName'], jfect_get_editable_blocks(), true ) ) {
 		return new WP_Error( 'not_editable', 'This block type is not editable.', array( 'status' => 400 ) );
@@ -537,16 +699,19 @@ function jfect_update_block( $request ) {
 
 /**
  * Flatten nested blocks into an ordered list matching render_block's traversal.
- * Each entry holds a reference to the block in the original tree so we can modify it.
+ * Each entry holds a reference to the block in the original tree so we can modify it,
+ * plus a 'locked' flag that is inherited from any locked ancestor (or the block itself).
  */
-function jfect_flatten_blocks( &$blocks, &$flat ) {
+function jfect_flatten_blocks( &$blocks, &$flat, $parent_locked = false ) {
 	foreach ( $blocks as &$block ) {
+		$locked = $parent_locked || jfect_block_is_locked( $block );
 		$flat[] = array(
-			'block' => $block,
-			'ref'   => &$block,
+			'block'  => $block,
+			'ref'    => &$block,
+			'locked' => $locked,
 		);
 		if ( ! empty( $block['innerBlocks'] ) ) {
-			jfect_flatten_blocks( $block['innerBlocks'], $flat );
+			jfect_flatten_blocks( $block['innerBlocks'], $flat, $locked );
 		}
 	}
 }
