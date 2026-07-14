@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Jamie's Front-End Editor for Content Teams
  * Description: Simple front-end text editing for your team. Click any text block to edit it on the live site — block markup is preserved.
- * Version: 0.3
+ * Version: 0.4
  * Requires at least: 6.5
  * Requires PHP: 8.0
  * Author: Jamie Marsland
@@ -90,6 +90,9 @@ function jfect_is_page_locked( $post_id ) {
 
 /**
  * Get the list of editable block types from settings.
+ *
+ * Combines the built-in supported blocks the user has enabled with any extra
+ * (non-core) block types they've opted into under the Advanced setting.
  */
 function jfect_get_editable_blocks() {
 	static $blocks = null;
@@ -99,8 +102,42 @@ function jfect_get_editable_blocks() {
 	}
 
 	$saved = get_option( 'jfect_editable_blocks' );
-	$blocks = is_array( $saved ) ? $saved : JFECT_DEFAULT_BLOCKS;
+	$core  = is_array( $saved ) ? $saved : JFECT_DEFAULT_BLOCKS;
+	$extra = jfect_get_extra_blocks();
+
+	$blocks = array_values( array_unique( array_merge( $core, $extra ) ) );
 	return $blocks;
+}
+
+/**
+ * Extra, user-enabled block types beyond the built-in supported set.
+ */
+function jfect_get_extra_blocks() {
+	$saved = get_option( 'jfect_extra_blocks' );
+	return is_array( $saved ) ? $saved : array();
+}
+
+/**
+ * Sanitize the extra blocks list: only allow currently-registered block types,
+ * and never the ones already offered in the primary supported list.
+ */
+function jfect_sanitize_extra_blocks( $input ) {
+	if ( ! is_array( $input ) ) {
+		return array();
+	}
+
+	$registered = array_keys( WP_Block_Type_Registry::get_instance()->get_all_registered() );
+	$supported  = array_keys( JFECT_SUPPORTED_BLOCKS );
+
+	$clean = array();
+	foreach ( $input as $name ) {
+		$name = sanitize_text_field( $name );
+		if ( in_array( $name, $registered, true ) && ! in_array( $name, $supported, true ) ) {
+			$clean[] = $name;
+		}
+	}
+
+	return array_values( array_unique( $clean ) );
 }
 
 /**
@@ -133,6 +170,12 @@ add_action( 'admin_init', function () {
 	register_setting( 'jfect_settings', 'jfect_restricted_roles', array(
 		'type'              => 'array',
 		'sanitize_callback' => 'jfect_sanitize_roles',
+		'default'           => array(),
+	) );
+
+	register_setting( 'jfect_settings', 'jfect_extra_blocks', array(
+		'type'              => 'array',
+		'sanitize_callback' => 'jfect_sanitize_extra_blocks',
 		'default'           => array(),
 	) );
 } );
@@ -215,9 +258,21 @@ function jfect_sanitize_blocks( $input ) {
 }
 
 function jfect_settings_page() {
-	$editable   = jfect_get_editable_blocks();
-	$restricted = jfect_get_restricted_roles();
-	$all_roles  = wp_roles()->roles;
+	$editable    = jfect_get_editable_blocks();
+	$restricted  = jfect_get_restricted_roles();
+	$all_roles   = wp_roles()->roles;
+	$extra_saved = jfect_get_extra_blocks();
+
+	// Other registered block types, excluding the ones already offered above.
+	$other_blocks = array();
+	foreach ( WP_Block_Type_Registry::get_instance()->get_all_registered() as $name => $type ) {
+		if ( isset( JFECT_SUPPORTED_BLOCKS[ $name ] ) ) {
+			continue;
+		}
+		$title                 = ( isset( $type->title ) && $type->title ) ? $type->title : $name;
+		$other_blocks[ $name ] = $title;
+	}
+	asort( $other_blocks );
 	?>
 	<div class="wrap">
 		<h1>Jamie's Front-End Editor for Content Teams</h1>
@@ -241,6 +296,34 @@ function jfect_settings_page() {
 									<code style="color:#666;margin-left:4px;"><?php echo esc_html( $block_name ); ?></code>
 								</label>
 							<?php endforeach; ?>
+						</fieldset>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">Other blocks (advanced)</th>
+					<td>
+						<fieldset>
+							<p class="description" style="margin-bottom:10px;max-width:640px;">
+								Enable front-end editing for other block types on your site, such as blocks from your theme or other plugins. <strong>At your own risk:</strong> this works best for blocks that show their text in a normal heading or paragraph tag. Blocks that store their text differently may not save correctly. Editing simply does nothing on blocks that aren&rsquo;t compatible, so nothing will break.
+							</p>
+							<div style="max-height:260px;overflow:auto;border:1px solid #dcdcde;border-radius:4px;padding:10px;background:#fff;max-width:640px;">
+								<?php if ( empty( $other_blocks ) ) : ?>
+									<p style="margin:0;color:#666;">No other block types are registered on this site.</p>
+								<?php else : ?>
+									<?php foreach ( $other_blocks as $block_name => $label ) : ?>
+										<label style="display:block;margin-bottom:8px;">
+											<input
+												type="checkbox"
+												name="jfect_extra_blocks[]"
+												value="<?php echo esc_attr( $block_name ); ?>"
+												<?php checked( in_array( $block_name, $extra_saved, true ) ); ?>
+											/>
+											<?php echo esc_html( $label ); ?>
+											<code style="color:#666;margin-left:4px;"><?php echo esc_html( $block_name ); ?></code>
+										</label>
+									<?php endforeach; ?>
+								<?php endif; ?>
+							</div>
 						</fieldset>
 					</td>
 				</tr>
@@ -367,7 +450,7 @@ add_action( 'init', function () {
 		'jamies-front-end-editor-for-content-teams/view',
 		plugins_url( 'view.js', __FILE__ ),
 		array( '@wordpress/interactivity' ),
-		'1.0.0'
+		'1.2.0'
 	);
 } );
 
@@ -466,13 +549,23 @@ add_action( 'wp_enqueue_scripts', function () {
 		'1.0.0'
 	);
 
+	$post_id = get_queried_object_id();
+
+	// Is someone else already editing this post (front end or back end)?
+	require_once ABSPATH . 'wp-admin/includes/post.php';
+	$lock_user  = wp_check_post_lock( $post_id );
+	$locked_by  = $lock_user ? get_the_author_meta( 'display_name', $lock_user ) : '';
+
 	wp_interactivity_state( 'jamies-front-end-editor-for-content-teams', array(
-		'postId'    => get_queried_object_id(),
-		'restNonce' => wp_create_nonce( 'wp_rest' ),
-		'endpoint'  => rest_url( 'jfect/v1/update-block' ),
-		'isEditing' => false,
-		'isSaving'  => false,
-		'message'   => '',
+		'postId'         => $post_id,
+		'restNonce'      => wp_create_nonce( 'wp_rest' ),
+		'endpoint'       => rest_url( 'jfect/v1/update-block' ),
+		'lockEndpoint'   => rest_url( 'jfect/v1/lock' ),
+		'unlockEndpoint' => rest_url( 'jfect/v1/unlock' ),
+		'lockedByName'   => $locked_by,
+		'isEditing'      => false,
+		'isSaving'       => false,
+		'message'        => '',
 	) );
 } );
 
@@ -504,13 +597,21 @@ add_filter( 'render_block', function ( $block_content, $block ) {
 	// Take the next available flat index for this signature (handles duplicates).
 	$flat_index = array_shift( $map[ $sig ] );
 
-	$context = esc_attr( wp_json_encode( array( 'blockIndex' => $flat_index ) ) );
+	// A fingerprint of the block's stored markup at render time, used to detect
+	// concurrent edits: if the stored content changes before this client saves,
+	// the fingerprints won't match and the save is rejected instead of clobbering.
+	$base_hash = md5( trim( $block['innerHTML'] ) );
+
+	$context = esc_attr( wp_json_encode( array(
+		'blockIndex' => $flat_index,
+		'base'       => $base_hash,
+	) ) );
 
 	// $context is escaped above with esc_attr(); $block_content is WordPress core's
 	// already-rendered block output for this block and must be passed through as-is.
 	// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	return sprintf(
-		'<div class="fie-block" data-wp-interactive="jamies-front-end-editor-for-content-teams" data-wp-context=\'%s\' data-wp-on--click="actions.editBlock" data-wp-class--fie-active="context.active" data-wp-watch="callbacks.syncEditable">%s</div>',
+		'<div class="fie-block" data-wp-interactive="jamies-front-end-editor-for-content-teams" data-wp-context=\'%s\' data-wp-on--click="actions.editBlock" data-wp-on--keydown="actions.onKeydown" data-wp-class--fie-active="context.active" data-wp-watch="callbacks.syncEditable">%s</div>',
 		$context,
 		$block_content
 	);
@@ -525,6 +626,9 @@ add_action( 'wp_footer', function () {
 	}
 	?>
 	<div data-wp-interactive="jamies-front-end-editor-for-content-teams" class="fie-toolbar-wrap">
+		<div class="fie-lock-banner" data-wp-bind--hidden="!state.lockedByName">
+			<strong data-wp-text="state.lockedByName"></strong> is currently editing this page &mdash; it&rsquo;s read-only until they&rsquo;re done.
+		</div>
 		<div class="fie-toolbar" data-wp-bind--hidden="!state.isEditing">
 			<div class="fie-toolbar-inner">
 				<span class="fie-toolbar-label">Editing</span>
@@ -568,13 +672,15 @@ add_action( 'wp_footer', function () {
  * parses the post's raw block content, updates that block, and saves.
  */
 add_action( 'rest_api_init', function () {
+	$can_edit = function ( $request ) {
+		$post_id = absint( $request->get_param( 'postId' ) );
+		return $post_id && current_user_can( 'edit_post', $post_id );
+	};
+
 	register_rest_route( 'jfect/v1', '/update-block', array(
 		'methods'             => 'POST',
 		'callback'            => 'jfect_update_block',
-		'permission_callback' => function ( $request ) {
-			$post_id = absint( $request->get_param( 'postId' ) );
-			return $post_id && current_user_can( 'edit_post', $post_id );
-		},
+		'permission_callback' => $can_edit,
 		'args'                => array(
 			'postId'     => array(
 				'required'          => true,
@@ -591,9 +697,88 @@ add_action( 'rest_api_init', function () {
 				'type'              => 'string',
 				'sanitize_callback' => 'wp_kses_post',
 			),
+			'baseHash'   => array(
+				'required'          => false,
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+		),
+	) );
+
+	// Acquire or refresh the edit lock for this post.
+	register_rest_route( 'jfect/v1', '/lock', array(
+		'methods'             => 'POST',
+		'callback'            => 'jfect_acquire_lock',
+		'permission_callback' => $can_edit,
+		'args'                => array(
+			'postId' => array(
+				'required'          => true,
+				'type'              => 'integer',
+				'sanitize_callback' => 'absint',
+			),
+		),
+	) );
+
+	// Release the edit lock for this post (if held by the current user).
+	register_rest_route( 'jfect/v1', '/unlock', array(
+		'methods'             => 'POST',
+		'callback'            => 'jfect_release_lock',
+		'permission_callback' => $can_edit,
+		'args'                => array(
+			'postId' => array(
+				'required'          => true,
+				'type'              => 'integer',
+				'sanitize_callback' => 'absint',
+			),
 		),
 	) );
 } );
+
+/**
+ * Acquire or refresh the WordPress post-edit lock from the front end.
+ * Refuses if another user currently holds the lock.
+ */
+function jfect_acquire_lock( $request ) {
+	$post_id = $request->get_param( 'postId' );
+
+	require_once ABSPATH . 'wp-admin/includes/post.php';
+
+	$lock_user = wp_check_post_lock( $post_id );
+	if ( $lock_user ) {
+		$name = get_the_author_meta( 'display_name', $lock_user );
+		return new WP_Error(
+			'locked',
+			$name,
+			array(
+				'status'     => 423,
+				'lockedBy'   => $name,
+			)
+		);
+	}
+
+	// Sets/refreshes the lock to the current user.
+	wp_set_post_lock( $post_id );
+
+	return array( 'success' => true );
+}
+
+/**
+ * Release the post-edit lock, but only if the current user is the holder.
+ */
+function jfect_release_lock( $request ) {
+	$post_id = $request->get_param( 'postId' );
+
+	$lock = get_post_meta( $post_id, '_edit_lock', true );
+	if ( $lock ) {
+		$parts     = explode( ':', $lock );
+		$lock_user = isset( $parts[1] ) ? (int) $parts[1] : 0;
+		if ( $lock_user === get_current_user_id() ) {
+			delete_post_meta( $post_id, '_edit_lock' );
+		}
+	}
+
+	return array( 'success' => true );
+}
 
 /**
  * Handle the block update.
@@ -602,6 +787,18 @@ function jfect_update_block( $request ) {
 	$post_id     = $request->get_param( 'postId' );
 	$block_index = $request->get_param( 'blockIndex' );
 	$new_content = $request->get_param( 'newContent' );
+	$base_hash   = $request->get_param( 'baseHash' );
+
+	// contentEditable can wrap new lines in <div>/<p>, which are invalid inside a
+	// paragraph or heading and break block validation. Flatten them to <br>.
+	$new_content = preg_replace( '#<div>\s*<br\s*/?>\s*</div>#i', '<br>', $new_content );
+	$new_content = preg_replace( '#<div[^>]*>#i', '<br>', $new_content );
+	$new_content = str_ireplace( '</div>', '', $new_content );
+	$new_content = preg_replace( '#<p[^>]*>#i', '<br>', $new_content );
+	$new_content = str_ireplace( '</p>', '', $new_content );
+	$new_content = preg_replace( '#^(?:\s*<br\s*/?>\s*)+#i', '', $new_content );
+	$new_content = preg_replace( '#(?:\s*<br\s*/?>\s*)+$#i', '', $new_content );
+	$new_content = trim( $new_content );
 
 	$post = get_post( $post_id );
 	if ( ! $post ) {
@@ -611,6 +808,18 @@ function jfect_update_block( $request ) {
 	// Whole page locked from front-end editing.
 	if ( jfect_is_page_locked( $post_id ) ) {
 		return new WP_Error( 'page_locked', 'Front-end editing is locked for this page.', array( 'status' => 403 ) );
+	}
+
+	// Someone else is holding the edit lock (front end or back end).
+	require_once ABSPATH . 'wp-admin/includes/post.php';
+	$lock_user = wp_check_post_lock( $post_id );
+	if ( $lock_user ) {
+		$name = get_the_author_meta( 'display_name', $lock_user );
+		return new WP_Error(
+			'locked',
+			sprintf( '%s is currently editing this page. Reload to see the latest.', $name ),
+			array( 'status' => 423 )
+		);
 	}
 
 	$blocks = parse_blocks( $post->post_content );
@@ -631,6 +840,16 @@ function jfect_update_block( $request ) {
 
 	if ( ! in_array( $target['block']['blockName'], jfect_get_editable_blocks(), true ) ) {
 		return new WP_Error( 'not_editable', 'This block type is not editable.', array( 'status' => 400 ) );
+	}
+
+	// Concurrent-edit guard: if the stored block changed since this client loaded
+	// the page, reject the save instead of overwriting the other person's edit.
+	if ( $base_hash && md5( trim( $target['ref']['innerHTML'] ) ) !== $base_hash ) {
+		return new WP_Error(
+			'conflict',
+			'This content was just changed by someone else. Reload the page to see the latest version.',
+			array( 'status' => 409 )
+		);
 	}
 
 	// The block's innerHTML contains the full inner markup, e.g.:
