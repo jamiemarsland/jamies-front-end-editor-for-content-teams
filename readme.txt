@@ -4,7 +4,7 @@ Tags: frontend editing, inline editor, interactivity api, block editor
 Requires at least: 6.5
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.4
+Stable tag: 0.5
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -58,6 +58,9 @@ Only logged-in users who already have permission to edit the post. The editing U
 Yes. You can lock a whole page (a checkbox in the "Front-End Editing" box when editing the page), or lock a single block/section using the block's own Lock option (the padlock in its Options menu) or by adding the CSS class "fie-no-edit" in its Advanced panel. A locked block, and everything nested inside it, becomes read-only on the front end. Locks are enforced when saving, so they can't be bypassed.
 
 == Changelog ==
+
+= 0.5 =
+* A friendlier way to enable other block types. The Advanced setting is now a search-and-add field with removable chips instead of a long checklist: type to find a block, click to add it. Much easier on sites with lots of blocks.
 
 = 0.4 =
 * Fixed a bug where pressing Enter while editing could insert invalid markup and cause a "block validation" error in the block editor. Line breaks are now saved cleanly.

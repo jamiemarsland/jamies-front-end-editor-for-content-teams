@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Jamie's Front-End Editor for Content Teams
  * Description: Simple front-end text editing for your team. Click any text block to edit it on the live site — block markup is preserved.
- * Version: 0.4
+ * Version: 0.5
  * Requires at least: 6.5
  * Requires PHP: 8.0
  * Author: Jamie Marsland
@@ -160,6 +160,52 @@ add_action( 'admin_menu', function () {
 	);
 } );
 
+/**
+ * Load the block-picker assets on our settings page only.
+ */
+add_action( 'admin_enqueue_scripts', function ( $hook ) {
+	if ( 'settings_page_jamies-front-end-editor-for-content-teams' !== $hook ) {
+		return;
+	}
+
+	wp_enqueue_style(
+		'jfect-admin',
+		plugins_url( 'admin.css', __FILE__ ),
+		array(),
+		'1.0.0'
+	);
+
+	wp_enqueue_script(
+		'jfect-admin',
+		plugins_url( 'admin.js', __FILE__ ),
+		array(),
+		'1.0.0',
+		true
+	);
+
+	// Candidate blocks for the picker: everything registered except the primary set.
+	$candidates = array();
+	foreach ( WP_Block_Type_Registry::get_instance()->get_all_registered() as $name => $type ) {
+		if ( isset( JFECT_SUPPORTED_BLOCKS[ $name ] ) ) {
+			continue;
+		}
+		$title        = ( isset( $type->title ) && $type->title ) ? $type->title : $name;
+		$candidates[] = array(
+			'name'  => $name,
+			'title' => $title,
+		);
+	}
+	usort( $candidates, function ( $a, $b ) {
+		return strcasecmp( $a['title'], $b['title'] );
+	} );
+
+	wp_localize_script( 'jfect-admin', 'jfectPicker', array(
+		'blocks'     => $candidates,
+		'noneFound'  => 'No matching blocks',
+		'removeText' => 'Remove',
+	) );
+} );
+
 add_action( 'admin_init', function () {
 	register_setting( 'jfect_settings', 'jfect_editable_blocks', array(
 		'type'              => 'array',
@@ -306,23 +352,20 @@ function jfect_settings_page() {
 							<p class="description" style="margin-bottom:10px;max-width:640px;">
 								Enable front-end editing for other block types on your site, such as blocks from your theme or other plugins. <strong>At your own risk:</strong> this works best for blocks that show their text in a normal heading or paragraph tag. Blocks that store their text differently may not save correctly. Editing simply does nothing on blocks that aren&rsquo;t compatible, so nothing will break.
 							</p>
-							<div style="max-height:260px;overflow:auto;border:1px solid #dcdcde;border-radius:4px;padding:10px;background:#fff;max-width:640px;">
-								<?php if ( empty( $other_blocks ) ) : ?>
-									<p style="margin:0;color:#666;">No other block types are registered on this site.</p>
-								<?php else : ?>
-									<?php foreach ( $other_blocks as $block_name => $label ) : ?>
-										<label style="display:block;margin-bottom:8px;">
-											<input
-												type="checkbox"
-												name="jfect_extra_blocks[]"
-												value="<?php echo esc_attr( $block_name ); ?>"
-												<?php checked( in_array( $block_name, $extra_saved, true ) ); ?>
-											/>
-											<?php echo esc_html( $label ); ?>
-											<code style="color:#666;margin-left:4px;"><?php echo esc_html( $block_name ); ?></code>
-										</label>
+							<div class="jfect-block-picker">
+								<div class="jfect-chips" id="jfect-chips">
+									<?php foreach ( $extra_saved as $block_name ) : ?>
+										<?php $label = isset( $other_blocks[ $block_name ] ) ? $other_blocks[ $block_name ] : $block_name; ?>
+										<span class="jfect-chip">
+											<span class="jfect-chip-label"><?php echo esc_html( $label ); ?></span>
+											<code><?php echo esc_html( $block_name ); ?></code>
+											<button type="button" class="jfect-chip-remove" aria-label="Remove">&times;</button>
+											<input type="hidden" name="jfect_extra_blocks[]" value="<?php echo esc_attr( $block_name ); ?>" />
+										</span>
 									<?php endforeach; ?>
-								<?php endif; ?>
+								</div>
+								<input type="text" id="jfect-block-search" class="regular-text" placeholder="Search blocks to enable (for example, Kadence)&hellip;" autocomplete="off" />
+								<ul class="jfect-suggestions" id="jfect-suggestions" hidden></ul>
 							</div>
 						</fieldset>
 					</td>
