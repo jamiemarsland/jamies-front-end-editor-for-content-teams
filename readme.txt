@@ -1,14 +1,14 @@
 === Jamie's Front-End Editor for Content Teams ===
-Contributors: jamiemarsland
+Contributors: jamiemarsland, alkesh7
 Tags: frontend editing, inline editor, interactivity api, block editor
 Requires at least: 6.5
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.7.1
+Stable tag: 0.8
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Let your content team edit text, links, buttons and images directly on the front end of your site. Block markup is preserved.
+Let your content team edit text, links, buttons and images right on the live front end — no wp-admin needed, block markup fully preserved.
 
 == Description ==
 
@@ -61,6 +61,13 @@ Only logged-in users who already have permission to edit the post. The editing U
 Yes. You can lock a whole page (a checkbox in the "Front-End Editing" box when editing the page), or lock a single block/section using the block's own Lock option (the padlock in its Options menu) or by adding the CSS class "fie-no-edit" in its Advanced panel. A locked block, and everything nested inside it, becomes read-only on the front end. Locks are enforced when saving, so they can't be bypassed.
 
 == Changelog ==
+
+= 0.8 =
+* Confirmed compatibility with WordPress 7.0.
+* All user-facing strings (admin screen, editing toolbar, and error messages) are now translatable via the `jamies-front-end-editor-for-content-teams` text domain.
+* Code now passes the WordPress Coding Standards (PHPCS) with zero errors or warnings, and every function has complete PHPDoc.
+* Documented why the DOMDocument-based image/button HTML parsing is safe from XXE, as part of a full security review.
+* No functional changes; front-end and admin behavior is unchanged.
 
 = 0.7.1 =
 * Updated the plugin description to reflect that you can now edit text, links, buttons and images from the front end.

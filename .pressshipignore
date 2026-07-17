@@ -3,8 +3,11 @@
 .wordpress-org
 .wordpress-org/**
 
-# Don't ship the ignore file itself.
+# Don't ship the ignore file itself, or other dev-only hidden files.
 .pressshipignore
+.gitignore
+.claude
+.claude/**
 
 # Repo-only dev docs — keep in git, never ship to WordPress.org.
 RELEASE.md
