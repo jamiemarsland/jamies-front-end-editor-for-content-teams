@@ -4,7 +4,7 @@ Tags: frontend editing, inline editor, interactivity api, block editor
 Requires at least: 6.5
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.5
+Stable tag: 0.7
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -21,6 +21,9 @@ Give your team precise, bounded editing: let them fix the copy that should chang
 **Features:**
 
 * Click any paragraph or heading to edit it inline, right on the live page
+* Add, edit or remove links on your text without leaving the page
+* Replace images from the media library, set alt text, or remove an image, all on the front end
+* Edit button text and links from the front end too
 * Block markup is fully preserved on save
 * Lock a whole page from front-end editing with a single checkbox
 * Lock individual blocks or whole sections, using the block's own Lock option (padlock) or a CSS class. Locks cover everything nested inside and are enforced on save, not just hidden in the UI
@@ -58,6 +61,14 @@ Only logged-in users who already have permission to edit the post. The editing U
 Yes. You can lock a whole page (a checkbox in the "Front-End Editing" box when editing the page), or lock a single block/section using the block's own Lock option (the padlock in its Options menu) or by adding the CSS class "fie-no-edit" in its Advanced panel. A locked block, and everything nested inside it, becomes read-only on the front end. Locks are enforced when saving, so they can't be bypassed.
 
 == Changelog ==
+
+= 0.7 =
+* Inline image editing. Click an image while editing and a small toolbar appears over it: Replace opens the WordPress media library and swaps the image in place, Alt text lets you set the image's alt for accessibility, and Remove deletes the image block. Changes save straight into the block, and concurrent edits are still guarded.
+* Button editing. Click a button to change its text and its link (and whether it opens in a new tab) in a small dialog, right on the front end.
+* More reliable saves. Edits are now matched to blocks by content fingerprint, so removing or replacing an image no longer causes a later text save to report a false "changed by someone else" conflict.
+
+= 0.6 =
+* Inline link editing. Select some words while editing and a small link bubble appears — click it to add a link (set the URL and, if you like, open it in a new tab). Click an existing link and the bubble offers Edit and Remove. Links save into the block markup like any other edit, and they no longer navigate away while you are editing.
 
 = 0.5 =
 * A friendlier way to enable other block types. The Advanced setting is now a search-and-add field with removable chips instead of a long checklist: type to find a block, click to add it. Much easier on sites with lots of blocks.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Jamie's Front-End Editor for Content Teams
  * Description: Simple front-end text editing for your team. Click any text block to edit it on the live site — block markup is preserved.
- * Version: 0.5
+ * Version: 0.7
  * Requires at least: 6.5
  * Requires PHP: 8.0
  * Author: Jamie Marsland
@@ -493,7 +493,7 @@ add_action( 'init', function () {
 		'jamies-front-end-editor-for-content-teams/view',
 		plugins_url( 'view.js', __FILE__ ),
 		array( '@wordpress/interactivity' ),
-		'1.2.0'
+		'1.9.0'
 	);
 } );
 
@@ -529,6 +529,34 @@ function jfect_should_render() {
 }
 
 /**
+ * Whether inline image editing (replace / alt / remove) is available.
+ */
+function jfect_image_editing_enabled() {
+	return (bool) apply_filters( 'jfect_image_editing_enabled', true );
+}
+
+/**
+ * Whether inline button editing (text + link) is available.
+ */
+function jfect_button_editing_enabled() {
+	return (bool) apply_filters( 'jfect_button_editing_enabled', true );
+}
+
+/**
+ * Whether a block type is handled by the front-end editor: an editable text
+ * block, or (when enabled) a core image or button block.
+ */
+function jfect_is_handled_block( $block_name ) {
+	if ( in_array( $block_name, jfect_get_editable_blocks(), true ) ) {
+		return true;
+	}
+	if ( jfect_image_editing_enabled() && 'core/image' === $block_name ) {
+		return true;
+	}
+	return jfect_button_editing_enabled() && 'core/button' === $block_name;
+}
+
+/**
  * Build a lookup of editable blocks from the post content.
  * Uses blockName + innerHTML as a signature, with a counter per signature
  * to handle duplicate blocks.
@@ -556,7 +584,7 @@ function jfect_get_post_block_map() {
 
 	foreach ( $flat as $index => $entry ) {
 		$block = $entry['block'];
-		if ( ! in_array( $block['blockName'], jfect_get_editable_blocks(), true ) ) {
+		if ( ! jfect_is_handled_block( $block['blockName'] ) ) {
 			continue;
 		}
 
@@ -589,8 +617,13 @@ add_action( 'wp_enqueue_scripts', function () {
 		'jamies-front-end-editor-for-content-teams',
 		plugins_url( 'style.css', __FILE__ ),
 		array(),
-		'1.0.0'
+		'1.5.0'
 	);
+
+	// The WordPress media library, so images can be replaced on the front end.
+	if ( jfect_image_editing_enabled() ) {
+		wp_enqueue_media();
+	}
 
 	$post_id = get_queried_object_id();
 
@@ -603,6 +636,8 @@ add_action( 'wp_enqueue_scripts', function () {
 		'postId'         => $post_id,
 		'restNonce'      => wp_create_nonce( 'wp_rest' ),
 		'endpoint'       => rest_url( 'jfect/v1/update-block' ),
+		'imageEndpoint'  => rest_url( 'jfect/v1/image' ),
+		'buttonEndpoint' => rest_url( 'jfect/v1/button' ),
 		'lockEndpoint'   => rest_url( 'jfect/v1/lock' ),
 		'unlockEndpoint' => rest_url( 'jfect/v1/unlock' ),
 		'lockedByName'   => $locked_by,
@@ -625,7 +660,7 @@ add_filter( 'render_block', function ( $block_content, $block ) {
 		return $block_content;
 	}
 
-	if ( ! in_array( $block['blockName'], jfect_get_editable_blocks(), true ) ) {
+	if ( ! jfect_is_handled_block( $block['blockName'] ) ) {
 		return $block_content;
 	}
 
@@ -649,6 +684,27 @@ add_filter( 'render_block', function ( $block_content, $block ) {
 		'blockIndex' => $flat_index,
 		'base'       => $base_hash,
 	) ) );
+
+	// Image blocks get a lighter wrapper: click to open the image controls
+	// (replace / alt / remove), no contentEditable text flow.
+	if ( 'core/image' === $block['blockName'] ) {
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		return sprintf(
+			'<div class="fie-block fie-image-block" data-wp-interactive="jamies-front-end-editor-for-content-teams" data-wp-context=\'%s\' data-wp-on--click="actions.editImage">%s</div>',
+			$context,
+			$block_content
+		);
+	}
+
+	// Button blocks: click to open the button editor (text + link).
+	if ( 'core/button' === $block['blockName'] ) {
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		return sprintf(
+			'<div class="fie-block fie-button-block" data-wp-interactive="jamies-front-end-editor-for-content-teams" data-wp-context=\'%s\' data-wp-on--click="actions.editButton">%s</div>',
+			$context,
+			$block_content
+		);
+	}
 
 	// $context is escaped above with esc_attr(); $block_content is WordPress core's
 	// already-rendered block output for this block and must be passed through as-is.
@@ -680,6 +736,43 @@ add_action( 'wp_footer', function () {
 				<span class="fie-message" data-wp-text="state.message"></span>
 			</div>
 		</div>
+
+		<div class="fie-modal-overlay" data-wp-bind--hidden="!state.linkOpen" data-wp-on--click="actions.modalBackdrop">
+			<div class="fie-modal" role="dialog" aria-modal="true" aria-labelledby="fie-modal-title">
+				<div class="fie-modal-head">
+					<strong id="fie-modal-title" data-wp-text="state.linkTitle">Add link</strong>
+					<button type="button" class="fie-modal-x" data-wp-on--click="actions.closeLink" aria-label="Close">&times;</button>
+				</div>
+				<label class="fie-modal-label" for="fie-link-url">Link URL</label>
+				<input type="url" id="fie-link-url" class="fie-link-input" placeholder="https://example.com" data-wp-on--keydown="actions.linkKeydown" />
+				<label class="fie-modal-check"><input type="checkbox" class="fie-link-newtab" /> Open in a new tab</label>
+				<div class="fie-modal-actions">
+					<button type="button" class="fie-btn fie-btn-remove" data-wp-on--click="actions.removeLink" data-wp-bind--hidden="!state.linkEditing">Remove link</button>
+					<span class="fie-modal-spacer"></span>
+					<button type="button" class="fie-btn fie-btn-cancel" data-wp-on--click="actions.closeLink">Cancel</button>
+					<button type="button" class="fie-btn fie-btn-save" data-wp-on--click="actions.applyLink">Apply</button>
+				</div>
+			</div>
+		</div>
+
+		<div class="fie-modal-overlay" data-wp-bind--hidden="!state.buttonOpen" data-wp-on--click="actions.buttonBackdrop">
+			<div class="fie-modal" role="dialog" aria-modal="true" aria-label="Edit button">
+				<div class="fie-modal-head">
+					<strong>Edit button</strong>
+					<button type="button" class="fie-modal-x" data-wp-on--click="actions.closeButton" aria-label="Close">&times;</button>
+				</div>
+				<label class="fie-modal-label" for="fie-btn-text">Button text</label>
+				<input type="text" id="fie-btn-text" class="fie-btn-text-input" placeholder="Learn more" data-wp-on--keydown="actions.buttonKeydown" />
+				<label class="fie-modal-label" for="fie-btn-url" style="margin-top:14px;">Link URL</label>
+				<input type="url" id="fie-btn-url" class="fie-btn-url-input" placeholder="https://example.com" data-wp-on--keydown="actions.buttonKeydown" />
+				<label class="fie-modal-check"><input type="checkbox" class="fie-btn-newtab" /> Open in a new tab</label>
+				<div class="fie-modal-actions">
+					<span class="fie-modal-spacer"></span>
+					<button type="button" class="fie-btn fie-btn-cancel" data-wp-on--click="actions.closeButton">Cancel</button>
+					<button type="button" class="fie-btn fie-btn-save" data-wp-on--click="actions.applyButton">Save</button>
+				</div>
+			</div>
+		</div>
 	</div>
 	<?php
 } );
@@ -697,7 +790,7 @@ add_action( 'wp_footer', function () {
 		'jamies-front-end-editor-for-content-teams',
 		plugins_url( 'style.css', __FILE__ ),
 		array(),
-		'1.0.0'
+		'1.3.0'
 	);
 	?>
 	<details class="fie-user-fab">
@@ -775,6 +868,36 @@ add_action( 'rest_api_init', function () {
 			),
 		),
 	) );
+
+	// Image operations: replace, alt text, or remove.
+	register_rest_route( 'jfect/v1', '/image', array(
+		'methods'             => 'POST',
+		'callback'            => 'jfect_update_image',
+		'permission_callback' => $can_edit,
+		'args'                => array(
+			'postId'     => array( 'required' => true, 'type' => 'integer', 'sanitize_callback' => 'absint' ),
+			'blockIndex' => array( 'required' => true, 'type' => 'integer', 'sanitize_callback' => 'absint' ),
+			'op'         => array( 'required' => true, 'type' => 'string', 'sanitize_callback' => 'sanitize_key' ),
+			'baseHash'   => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+			'id'         => array( 'required' => false, 'type' => 'integer', 'sanitize_callback' => 'absint' ),
+			'url'        => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'esc_url_raw' ),
+			'alt'        => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+		),
+	) );
+
+	// Button: update its text and link.
+	register_rest_route( 'jfect/v1', '/button', array(
+		'methods'             => 'POST',
+		'callback'            => 'jfect_update_button',
+		'permission_callback' => $can_edit,
+		'args'                => array(
+			'postId'     => array( 'required' => true, 'type' => 'integer', 'sanitize_callback' => 'absint' ),
+			'blockIndex' => array( 'required' => true, 'type' => 'integer', 'sanitize_callback' => 'absint' ),
+			'text'       => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+			'url'        => array( 'required' => false, 'type' => 'string', 'sanitize_callback' => 'esc_url_raw' ),
+			'newtab'     => array( 'required' => false, 'type' => 'boolean' ),
+		),
+	) );
 } );
 
 /**
@@ -824,6 +947,54 @@ function jfect_release_lock( $request ) {
 }
 
 /**
+ * Locate the flat index of the block a client means to edit.
+ *
+ * Blocks are addressed by a positional index baked into the page at load time.
+ * If the page structure changes during a session (e.g. the user removes an
+ * image, shifting every later block down one), those baked indices go stale.
+ * To stay robust, we treat the block's content fingerprint (base hash) as its
+ * real identity: use the given index when it still matches, otherwise find the
+ * one block whose fingerprint matches. Returns the resolved index, or null when
+ * no unambiguous match exists (a genuine concurrent change).
+ *
+ * @param array  $flat        Flattened blocks.
+ * @param int    $block_index Client-supplied index (a hint).
+ * @param string $base_hash   Fingerprint of the block's innerHTML at page load.
+ * @param string $expect_name Optional block name the target must have.
+ * @return int|null
+ */
+function jfect_resolve_index( $flat, $block_index, $base_hash, $expect_name = '' ) {
+	$name_ok = function ( $t ) use ( $expect_name ) {
+		return '' === $expect_name || ( isset( $t['block']['blockName'] ) && $t['block']['blockName'] === $expect_name );
+	};
+
+	// Prefer the supplied index when it still points at the expected content.
+	if ( isset( $flat[ $block_index ] ) && $name_ok( $flat[ $block_index ] ) ) {
+		$t = $flat[ $block_index ];
+		if ( '' === $base_hash || md5( trim( $t['ref']['innerHTML'] ) ) === $base_hash ) {
+			return $block_index;
+		}
+	}
+
+	// Index drifted: fall back to locating the block by its fingerprint.
+	if ( '' !== $base_hash ) {
+		$found = null;
+		$count = 0;
+		foreach ( $flat as $i => $t ) {
+			if ( $name_ok( $t ) && md5( trim( $t['ref']['innerHTML'] ) ) === $base_hash ) {
+				$found = $i;
+				$count++;
+			}
+		}
+		if ( 1 === $count ) {
+			return $found;
+		}
+	}
+
+	return null;
+}
+
+/**
  * Handle the block update.
  */
 function jfect_update_block( $request ) {
@@ -870,11 +1041,23 @@ function jfect_update_block( $request ) {
 	$flat = array();
 	jfect_flatten_blocks( $blocks, $flat );
 
-	if ( ! isset( $flat[ $block_index ] ) ) {
+	// Resolve the target by fingerprint, tolerating index drift from earlier edits
+	// in this session (e.g. a removed image shifting later blocks).
+	$resolved = jfect_resolve_index( $flat, $block_index, (string) $base_hash );
+	if ( null === $resolved ) {
+		if ( $base_hash ) {
+			// The block's stored content no longer matches what this client loaded,
+			// and it isn't found elsewhere: a genuine concurrent change.
+			return new WP_Error(
+				'conflict',
+				'This content was just changed by someone else. Reload the page to see the latest version.',
+				array( 'status' => 409 )
+			);
+		}
 		return new WP_Error( 'invalid_block', 'Block index out of range.', array( 'status' => 400 ) );
 	}
 
-	$target = $flat[ $block_index ];
+	$target = $flat[ $resolved ];
 
 	// Block (or a container around it) is locked from front-end editing.
 	if ( ! empty( $target['locked'] ) ) {
@@ -883,16 +1066,6 @@ function jfect_update_block( $request ) {
 
 	if ( ! in_array( $target['block']['blockName'], jfect_get_editable_blocks(), true ) ) {
 		return new WP_Error( 'not_editable', 'This block type is not editable.', array( 'status' => 400 ) );
-	}
-
-	// Concurrent-edit guard: if the stored block changed since this client loaded
-	// the page, reject the save instead of overwriting the other person's edit.
-	if ( $base_hash && md5( trim( $target['ref']['innerHTML'] ) ) !== $base_hash ) {
-		return new WP_Error(
-			'conflict',
-			'This content was just changed by someone else. Reload the page to see the latest version.',
-			array( 'status' => 409 )
-		);
 	}
 
 	// The block's innerHTML contains the full inner markup, e.g.:
@@ -956,7 +1129,326 @@ function jfect_update_block( $request ) {
 		'comment_parent'       => 0,
 	) );
 
+	// Return the new fingerprint so the client can keep editing this block
+	// (without a reload) instead of tripping the concurrent-edit guard next save.
+	return array( 'success' => true, 'newBase' => md5( trim( $new_inner ) ) );
+}
+
+/**
+ * REST callback: replace an image, set its alt text, or remove the image block.
+ */
+function jfect_update_image( $request ) {
+	$post_id     = absint( $request->get_param( 'postId' ) );
+	$block_index = absint( $request->get_param( 'blockIndex' ) );
+	$op          = sanitize_key( $request->get_param( 'op' ) );
+	$base_hash   = sanitize_text_field( (string) $request->get_param( 'baseHash' ) );
+
+	if ( ! jfect_image_editing_enabled() ) {
+		return new WP_Error( 'disabled', 'Image editing is disabled.', array( 'status' => 400 ) );
+	}
+
+	$post = get_post( $post_id );
+	if ( ! $post ) {
+		return new WP_Error( 'not_found', 'Post not found.', array( 'status' => 404 ) );
+	}
+	if ( jfect_is_page_locked( $post_id ) ) {
+		return new WP_Error( 'page_locked', 'Front-end editing is locked for this page.', array( 'status' => 403 ) );
+	}
+
+	require_once ABSPATH . 'wp-admin/includes/post.php';
+	$lock_user = wp_check_post_lock( $post_id );
+	if ( $lock_user ) {
+		$name = get_the_author_meta( 'display_name', $lock_user );
+		return new WP_Error( 'locked', sprintf( '%s is currently editing this page. Reload to see the latest.', $name ), array( 'status' => 423 ) );
+	}
+
+	// Claim the lock for this user so a concurrent editor is blocked while we save.
+	// (Image ops don't use the text hash-guard, which false-positives on images.)
+	wp_set_post_lock( $post_id );
+
+	$blocks = parse_blocks( $post->post_content );
+	$flat   = array();
+	jfect_flatten_blocks( $blocks, $flat );
+
+	// Resolve by fingerprint so image ops still hit the right block after earlier
+	// edits in this session shifted the indices.
+	$resolved = jfect_resolve_index( $flat, $block_index, $base_hash, 'core/image' );
+	if ( null === $resolved ) {
+		return new WP_Error( 'invalid_block', 'Could not find that image. Reload to see the latest.', array( 'status' => 409 ) );
+	}
+	$block_index = $resolved;
+	$target      = $flat[ $resolved ];
+
+	if ( ! empty( $target['locked'] ) ) {
+		return new WP_Error( 'block_locked', 'This section is locked from front-end editing.', array( 'status' => 403 ) );
+	}
+	if ( 'core/image' !== $target['block']['blockName'] ) {
+		return new WP_Error( 'not_image', 'That block is not an image.', array( 'status' => 400 ) );
+	}
+
+	if ( 'remove' === $op ) {
+		$counter = 0;
+		$removed = jfect_remove_block_at( $blocks, $block_index, $counter );
+		if ( null === $removed ) {
+			return new WP_Error( 'remove_failed', 'Could not remove the image.', array( 'status' => 500 ) );
+		}
+		$note = 'Removed an image from the front end';
+	} else {
+		$new_inner = jfect_image_apply( $target['ref']['innerHTML'], $op, $request, $target['ref'] );
+		if ( is_wp_error( $new_inner ) ) {
+			return $new_inner;
+		}
+		$target['ref']['innerHTML']    = $new_inner;
+		$target['ref']['innerContent'] = array( $new_inner );
+		$note = ( 'alt' === $op ) ? 'Updated image alt text from the front end' : 'Replaced an image from the front end';
+	}
+
+	$updated_content = serialize_blocks( $blocks );
+	$result          = wp_update_post( array( 'ID' => $post_id, 'post_content' => $updated_content ), true );
+	if ( is_wp_error( $result ) ) {
+		return $result;
+	}
+
+	// Record the change as a native WordPress block note.
+	$user = wp_get_current_user();
+	wp_insert_comment( array(
+		'comment_post_ID'      => $post_id,
+		'comment_content'      => $note,
+		'comment_type'         => 'note',
+		'user_id'              => $user->ID,
+		'comment_author'       => $user->display_name,
+		'comment_author_email' => $user->user_email,
+		'comment_approved'     => 1,
+		'comment_parent'       => 0,
+	) );
+
+	$new_base = ( 'remove' === $op ) ? '' : md5( trim( $target['ref']['innerHTML'] ) );
+	return array( 'success' => true, 'newBase' => $new_base );
+}
+
+/**
+ * Apply an image change (replace or alt) to a block's inner HTML, returning the
+ * updated inner HTML. Also updates the block's stored attachment id on replace.
+ */
+function jfect_image_apply( $inner, $op, $request, &$block_ref ) {
+	$dom = new DOMDocument();
+	libxml_use_internal_errors( true );
+	$dom->loadHTML( '<meta charset="utf-8"><div id="fie-w">' . $inner . '</div>', LIBXML_HTML_NODEFDTD );
+	libxml_clear_errors();
+
+	$xpath = new DOMXPath( $dom );
+	$wrap  = $xpath->query( '//*[@id="fie-w"]' )->item( 0 );
+	$img   = $wrap ? $xpath->query( './/img', $wrap )->item( 0 ) : null;
+	if ( ! $img ) {
+		return new WP_Error( 'no_img', 'No image found in this block.', array( 'status' => 400 ) );
+	}
+
+	if ( 'alt' === $op ) {
+		$img->setAttribute( 'alt', sanitize_text_field( (string) $request->get_param( 'alt' ) ) );
+	} else {
+		$url = esc_url_raw( (string) $request->get_param( 'url' ) );
+		if ( '' === $url ) {
+			return new WP_Error( 'no_url', 'No image URL was provided.', array( 'status' => 400 ) );
+		}
+		$id  = absint( $request->get_param( 'id' ) );
+		$alt = sanitize_text_field( (string) $request->get_param( 'alt' ) );
+
+		$img->setAttribute( 'src', $url );
+		$img->setAttribute( 'alt', $alt );
+		$img->removeAttribute( 'srcset' );
+		$img->removeAttribute( 'sizes' );
+		$img->removeAttribute( 'width' );
+		$img->removeAttribute( 'height' );
+
+		$class = trim( preg_replace( '/\bwp-image-\d+\b/', '', $img->getAttribute( 'class' ) ) );
+		if ( $id ) {
+			$class = trim( $class . ' wp-image-' . $id );
+		}
+		$img->setAttribute( 'class', trim( preg_replace( '/\s+/', ' ', $class ) ) );
+
+		if ( $id ) {
+			if ( ! isset( $block_ref['attrs'] ) || ! is_array( $block_ref['attrs'] ) ) {
+				$block_ref['attrs'] = array();
+			}
+			$block_ref['attrs']['id'] = $id;
+		}
+	}
+
+	$out = '';
+	foreach ( $wrap->childNodes as $child ) {
+		$out .= $dom->saveHTML( $child );
+	}
+	return $out;
+}
+
+/**
+ * REST callback: update a button block's text and link.
+ */
+function jfect_update_button( $request ) {
+	$post_id     = absint( $request->get_param( 'postId' ) );
+	$block_index = absint( $request->get_param( 'blockIndex' ) );
+
+	if ( ! jfect_button_editing_enabled() ) {
+		return new WP_Error( 'disabled', 'Button editing is disabled.', array( 'status' => 400 ) );
+	}
+
+	$post = get_post( $post_id );
+	if ( ! $post ) {
+		return new WP_Error( 'not_found', 'Post not found.', array( 'status' => 404 ) );
+	}
+	if ( jfect_is_page_locked( $post_id ) ) {
+		return new WP_Error( 'page_locked', 'Front-end editing is locked for this page.', array( 'status' => 403 ) );
+	}
+
+	require_once ABSPATH . 'wp-admin/includes/post.php';
+	$lock_user = wp_check_post_lock( $post_id );
+	if ( $lock_user ) {
+		$name = get_the_author_meta( 'display_name', $lock_user );
+		return new WP_Error( 'locked', sprintf( '%s is currently editing this page. Reload to see the latest.', $name ), array( 'status' => 423 ) );
+	}
+	wp_set_post_lock( $post_id );
+
+	$blocks = parse_blocks( $post->post_content );
+	$flat   = array();
+	jfect_flatten_blocks( $blocks, $flat );
+
+	if ( ! isset( $flat[ $block_index ] ) ) {
+		return new WP_Error( 'invalid_block', 'Block index out of range.', array( 'status' => 400 ) );
+	}
+	$target = $flat[ $block_index ];
+
+	if ( ! empty( $target['locked'] ) ) {
+		return new WP_Error( 'block_locked', 'This section is locked from front-end editing.', array( 'status' => 403 ) );
+	}
+	if ( 'core/button' !== $target['block']['blockName'] ) {
+		return new WP_Error( 'not_button', 'That block is not a button.', array( 'status' => 400 ) );
+	}
+
+	$new_inner = jfect_button_apply( $target['ref']['innerHTML'], $request );
+	if ( is_wp_error( $new_inner ) ) {
+		return $new_inner;
+	}
+	$target['ref']['innerHTML']    = $new_inner;
+	$target['ref']['innerContent'] = array( $new_inner );
+
+	$updated_content = serialize_blocks( $blocks );
+	$result          = wp_update_post( array( 'ID' => $post_id, 'post_content' => $updated_content ), true );
+	if ( is_wp_error( $result ) ) {
+		return $result;
+	}
+
+	$user = wp_get_current_user();
+	wp_insert_comment( array(
+		'comment_post_ID'      => $post_id,
+		'comment_content'      => 'Edited a button from the front end',
+		'comment_type'         => 'note',
+		'user_id'              => $user->ID,
+		'comment_author'       => $user->display_name,
+		'comment_author_email' => $user->user_email,
+		'comment_approved'     => 1,
+		'comment_parent'       => 0,
+	) );
+
 	return array( 'success' => true );
+}
+
+/**
+ * Apply new text / link to the anchor inside a button block's inner HTML.
+ */
+function jfect_button_apply( $inner, $request ) {
+	$dom = new DOMDocument();
+	libxml_use_internal_errors( true );
+	$dom->loadHTML( '<meta charset="utf-8"><div id="fie-w">' . $inner . '</div>', LIBXML_HTML_NODEFDTD );
+	libxml_clear_errors();
+
+	$xpath = new DOMXPath( $dom );
+	$wrap  = $xpath->query( '//*[@id="fie-w"]' )->item( 0 );
+	$a     = $wrap ? $xpath->query( './/a', $wrap )->item( 0 ) : null;
+	if ( ! $a ) {
+		return new WP_Error( 'no_anchor', 'No button link found in this block.', array( 'status' => 400 ) );
+	}
+
+	$params = $request->get_json_params();
+	if ( ! is_array( $params ) ) {
+		$params = $request->get_params();
+	}
+
+	if ( array_key_exists( 'text', $params ) ) {
+		$text = sanitize_text_field( (string) $request->get_param( 'text' ) );
+		while ( $a->firstChild ) {
+			$a->removeChild( $a->firstChild );
+		}
+		$a->appendChild( $dom->createTextNode( $text ) );
+	}
+
+	if ( array_key_exists( 'url', $params ) ) {
+		$url = esc_url_raw( (string) $request->get_param( 'url' ) );
+		if ( '' !== $url ) {
+			$a->setAttribute( 'href', $url );
+		} else {
+			$a->removeAttribute( 'href' );
+		}
+	}
+
+	$newtab = (bool) $request->get_param( 'newtab' );
+	if ( $newtab ) {
+		$a->setAttribute( 'target', '_blank' );
+		$a->setAttribute( 'rel', 'noreferrer noopener' );
+	} else {
+		$a->removeAttribute( 'target' );
+		$a->removeAttribute( 'rel' );
+	}
+
+	$out = '';
+	foreach ( $wrap->childNodes as $child ) {
+		$out .= $dom->saveHTML( $child );
+	}
+	return $out;
+}
+
+/**
+ * Remove the block at a given flat index (pre-order, matching the flatten). Also
+ * drops the matching null placeholder from a parent's innerContent so the block
+ * serialises correctly. Returns the removed block, or null.
+ */
+function jfect_remove_block_at( &$blocks, $target, &$counter, &$parent = null ) {
+	for ( $i = 0; $i < count( $blocks ); $i++ ) {
+		if ( $counter === $target ) {
+			$removed = $blocks[ $i ];
+			array_splice( $blocks, $i, 1 );
+			if ( null !== $parent ) {
+				jfect_remove_nth_inner_null( $parent, $i );
+			}
+			return $removed;
+		}
+		$counter++;
+		if ( ! empty( $blocks[ $i ]['innerBlocks'] ) ) {
+			$r = jfect_remove_block_at( $blocks[ $i ]['innerBlocks'], $target, $counter, $blocks[ $i ] );
+			if ( null !== $r ) {
+				return $r;
+			}
+		}
+	}
+	return null;
+}
+
+/**
+ * Remove the nth null placeholder (nth inner block) from a block's innerContent.
+ */
+function jfect_remove_nth_inner_null( &$parent, $n ) {
+	if ( empty( $parent['innerContent'] ) || ! is_array( $parent['innerContent'] ) ) {
+		return;
+	}
+	$seen = -1;
+	foreach ( $parent['innerContent'] as $k => $chunk ) {
+		if ( null === $chunk ) {
+			$seen++;
+			if ( $seen === $n ) {
+				array_splice( $parent['innerContent'], $k, 1 );
+				return;
+			}
+		}
+	}
 }
 
 /**
