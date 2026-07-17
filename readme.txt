@@ -4,15 +4,15 @@ Tags: frontend editing, inline editor, interactivity api, block editor
 Requires at least: 6.5
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.7
+Stable tag: 0.7.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Let your content team edit page and post text directly on the front end. Click any text block to edit it — block markup is preserved.
+Let your content team edit text, links, buttons and images directly on the front end of your site. Block markup is preserved.
 
 == Description ==
 
-Jamie's Front-End Editor for Content Teams lets your team edit page and post content directly from the front end of your WordPress site. No need to open the block editor — just click any text and start typing.
+Jamie's Front-End Editor for Content Teams lets your team edit page and post content directly from the front end of your WordPress site. No need to open the block editor — click any text, link, button or image on the live page and change it in place.
 
 Built on the WordPress Interactivity API with no build step required.
 
@@ -61,6 +61,9 @@ Only logged-in users who already have permission to edit the post. The editing U
 Yes. You can lock a whole page (a checkbox in the "Front-End Editing" box when editing the page), or lock a single block/section using the block's own Lock option (the padlock in its Options menu) or by adding the CSS class "fie-no-edit" in its Advanced panel. A locked block, and everything nested inside it, becomes read-only on the front end. Locks are enforced when saving, so they can't be bypassed.
 
 == Changelog ==
+
+= 0.7.1 =
+* Updated the plugin description to reflect that you can now edit text, links, buttons and images from the front end.
 
 = 0.7 =
 * Inline image editing. Click an image while editing and a small toolbar appears over it: Replace opens the WordPress media library and swaps the image in place, Alt text lets you set the image's alt for accessibility, and Remove deletes the image block. Changes save straight into the block, and concurrent edits are still guarded.

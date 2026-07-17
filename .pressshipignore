@@ -5,3 +5,7 @@
 
 # Don't ship the ignore file itself.
 .pressshipignore
+
+# Repo-only dev docs — keep in git, never ship to WordPress.org.
+RELEASE.md
+GITHUB-RELEASE-NOTES.md
