@@ -1,5 +1,5 @@
 === Jamie's Front-End Editor for Content Teams ===
-Contributors: jamiemarsland
+Contributors: jamiemarsland, alkesh7
 Tags: frontend editing, inline editor, interactivity api, block editor
 Requires at least: 6.5
 Tested up to: 7.0
@@ -8,7 +8,7 @@ Stable tag: 0.8
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Let your content team edit text, links, buttons and images on the front end, and see every change across your site in one place.
+Let your content team edit text, links, buttons and images right on the live front end — no wp-admin needed, block markup fully preserved.
 
 == Description ==
 
@@ -64,6 +64,11 @@ Yes. You can lock a whole page (a checkbox in the "Front-End Editing" box when e
 == Changelog ==
 
 = 0.8 =
+* Confirmed compatibility with WordPress 7.0.
+* All user-facing strings (admin screen, editing toolbar, and error messages) are now translatable via the `jamies-front-end-editor-for-content-teams` text domain.
+* Code now passes the WordPress Coding Standards (PHPCS) with zero errors or warnings, and every function has complete PHPDoc.
+* Documented why the DOMDocument-based image/button HTML parsing is safe from XXE, as part of a full security review.
+* No functional changes; front-end and admin behavior is unchanged.
 * New: a central "Site changes" screen under the Tools menu that gathers every front-end edit across the whole site into one filterable, searchable list — what changed, where, by whom and when. Read-only, for editors and admins. Export the current view to CSV.
 * Front-end edits now store structured data (page, block type, old/new text, user) so the new screen can filter and search them. Existing notes are backfilled once on upgrade.
 * Fixed a brief flash of the editing toolbar and dialogs when a page first loads.
