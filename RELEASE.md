@@ -34,6 +34,20 @@ npx pressship verify
 
 Runs readme validation + Plugin Check. Fix anything it flags before releasing.
 
+### 2a. Confirm dev-only files are excluded from the zip
+
+The `demo/` folder (demo-data seeder), `RELEASE.md` and `GITHUB-RELEASE-NOTES.md`
+are repo-only and must NOT ship. Verify before releasing:
+
+```
+npx pressship pack
+unzip -l jamies-front-end-editor-for-content-teams-*.zip | grep -E "demo/|RELEASE.md|GITHUB-RELEASE-NOTES.md" && echo "STOP: dev files leaked into the zip" || echo "OK: no dev files in the zip"
+```
+
+Expect "OK: no dev files in the zip". If anything is listed, check `.pressshipignore`
+before continuing. (You can delete the test zip afterwards; `pressship release`
+builds its own.)
+
 ## 3. Commit + push source to GitHub
 
 ```

@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Jamie's Front-End Editor for Content Teams
- * Description: Front-end editing for your content team. Click any text, link, button or image on the live page to edit it — no wp-admin needed, and block markup is preserved.
+ * Description: Front-end editing for your content team. Edit text, links, buttons and images on the live page, and see every change across your site in one place. No wp-admin needed, and block markup is preserved.
  * Version: 0.8
  * Requires at least: 6.5
  * Requires PHP: 8.0
@@ -16,6 +16,16 @@
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
+}
+
+// The central "Site changes" audit screen (Tools -> Site changes).
+require_once __DIR__ . '/site-changes.php';
+
+// Repo-only demo-data seeder. This file is excluded from the WordPress.org zip,
+// so it only loads on local checkouts (e.g. `pressship demo`), never in a
+// shipped release.
+if ( is_readable( __DIR__ . '/demo/demo-seeder.php' ) ) {
+	require_once __DIR__ . '/demo/demo-seeder.php';
 }
 
 /**
@@ -908,7 +918,7 @@ add_action(
 			esc_html_e( 'is currently editing this page — it&#8217;s read-only until they&#8217;re done.', 'jamies-front-end-editor-for-content-teams' );
 			?>
 		</div>
-		<div class="fie-toolbar" data-wp-bind--hidden="!state.isEditing">
+		<div class="fie-toolbar" hidden data-wp-bind--hidden="!state.isEditing">
 			<div class="fie-toolbar-inner">
 				<span class="fie-toolbar-label"><?php esc_html_e( 'Editing', 'jamies-front-end-editor-for-content-teams' ); ?></span>
 				<button class="fie-btn fie-btn-save" data-wp-on--click="actions.save" data-wp-bind--disabled="state.isSaving"><?php esc_html_e( 'Save', 'jamies-front-end-editor-for-content-teams' ); ?></button>
@@ -917,7 +927,7 @@ add_action(
 			</div>
 		</div>
 
-		<div class="fie-modal-overlay" data-wp-bind--hidden="!state.linkOpen" data-wp-on--click="actions.modalBackdrop">
+		<div class="fie-modal-overlay" hidden data-wp-bind--hidden="!state.linkOpen" data-wp-on--click="actions.modalBackdrop">
 			<div class="fie-modal" role="dialog" aria-modal="true" aria-labelledby="fie-modal-title">
 				<div class="fie-modal-head">
 					<strong id="fie-modal-title" data-wp-text="state.linkTitle"><?php esc_html_e( 'Add link', 'jamies-front-end-editor-for-content-teams' ); ?></strong>
@@ -1260,6 +1270,50 @@ function jfect_resolve_index( $flat, $block_index, $base_hash, $expect_name = ''
 }
 
 /**
+ * Record a front-end edit as a native WordPress note, plus structured comment
+ * meta so the "Site changes" screen can query and filter every edit across the
+ * site (rather than parsing note text). The human-readable note is kept as-is
+ * for back-compat and the per-post view.
+ *
+ * @param int         $post_id    The edited post.
+ * @param string      $block_type e.g. 'paragraph', 'heading', 'image', 'button'.
+ * @param string      $note       Human-readable summary (the note body).
+ * @param string|null $old        Old text, for text edits (optional).
+ * @param string|null $new        New text, for text edits (optional).
+ * @return int|false Comment ID, or false on failure.
+ */
+function jfect_record_edit( $post_id, $block_type, $note, $old = null, $new = null ) {
+	$user       = wp_get_current_user();
+	$comment_id = wp_insert_comment( array(
+		'comment_post_ID'      => $post_id,
+		'comment_content'      => $note,
+		'comment_type'         => 'note',
+		'user_id'              => $user->ID,
+		'comment_author'       => $user->display_name,
+		'comment_author_email' => $user->user_email,
+		'comment_approved'     => 1,
+		'comment_parent'       => 0,
+	) );
+
+	if ( ! $comment_id ) {
+		return false;
+	}
+
+	add_comment_meta( $comment_id, 'jfect_edit', 1 );
+	add_comment_meta( $comment_id, 'jfect_post_id', (int) $post_id );
+	add_comment_meta( $comment_id, 'jfect_block_type', $block_type );
+	add_comment_meta( $comment_id, 'jfect_user_id', (int) $user->ID );
+	if ( null !== $old ) {
+		add_comment_meta( $comment_id, 'jfect_old', mb_strimwidth( wp_strip_all_tags( (string) $old ), 0, 300, '…' ) );
+	}
+	if ( null !== $new ) {
+		add_comment_meta( $comment_id, 'jfect_new', mb_strimwidth( wp_strip_all_tags( (string) $new ), 0, 300, '…' ) );
+	}
+
+	return $comment_id;
+}
+
+/**
  * Handle the block update.
  *
  * @param WP_REST_Request $request REST request with postId, blockIndex, newContent, baseHash params.
@@ -1377,8 +1431,7 @@ function jfect_update_block( $request ) {
 		return $result;
 	}
 
-	// Record the edit as a native WordPress block note.
-	$user       = wp_get_current_user();
+	// Record the edit as a native WordPress block note, with structured meta.
 	$block_type = str_replace( 'core/', '', $target['block']['blockName'] );
 	$old_short  = mb_strimwidth( wp_strip_all_tags( $old_text ), 0, 80, '…' );
 	$new_short  = mb_strimwidth( wp_strip_all_tags( $new_content ), 0, 80, '…' );
@@ -1391,18 +1444,7 @@ function jfect_update_block( $request ) {
 		$new_short
 	);
 
-	wp_insert_comment(
-		array(
-			'comment_post_ID'      => $post_id,
-			'comment_content'      => $note_content,
-			'comment_type'         => 'note',
-			'user_id'              => $user->ID,
-			'comment_author'       => $user->display_name,
-			'comment_author_email' => $user->user_email,
-			'comment_approved'     => 1,
-			'comment_parent'       => 0,
-		)
-	);
+	jfect_record_edit( $post_id, $block_type, $note_content, $old_text, $new_content );
 
 	// Return the new fingerprint so the client can keep editing this block
 	// (without a reload) instead of tripping the concurrent-edit guard next save.
@@ -1497,20 +1539,8 @@ function jfect_update_image( $request ) {
 		return $result;
 	}
 
-	// Record the change as a native WordPress block note.
-	$user = wp_get_current_user();
-	wp_insert_comment(
-		array(
-			'comment_post_ID'      => $post_id,
-			'comment_content'      => $note,
-			'comment_type'         => 'note',
-			'user_id'              => $user->ID,
-			'comment_author'       => $user->display_name,
-			'comment_author_email' => $user->user_email,
-			'comment_approved'     => 1,
-			'comment_parent'       => 0,
-		)
-	);
+	// Record the change as a native WordPress block note, with structured meta.
+	jfect_record_edit( $post_id, 'image', $note );
 
 	$new_base = ( 'remove' === $op ) ? '' : md5( trim( $target['ref']['innerHTML'] ) );
 	return array(
@@ -1651,19 +1681,7 @@ function jfect_update_button( $request ) {
 		return $result;
 	}
 
-	$user = wp_get_current_user();
-	wp_insert_comment(
-		array(
-			'comment_post_ID'      => $post_id,
-			'comment_content'      => __( 'Edited a button from the front end', 'jamies-front-end-editor-for-content-teams' ),
-			'comment_type'         => 'note',
-			'user_id'              => $user->ID,
-			'comment_author'       => $user->display_name,
-			'comment_author_email' => $user->user_email,
-			'comment_approved'     => 1,
-			'comment_parent'       => 0,
-		)
-	);
+	jfect_record_edit( $post_id, 'button', 'Edited a button from the front end' );
 
 	return array( 'success' => true );
 }
