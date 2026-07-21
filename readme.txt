@@ -4,11 +4,11 @@ Tags: frontend editing, inline editor, interactivity api, block editor
 Requires at least: 6.5
 Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 0.7.1
+Stable tag: 0.8
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Let your content team edit text, links, buttons and images directly on the front end of your site. Block markup is preserved.
+Let your content team edit text, links, buttons and images on the front end, and see every change across your site in one place.
 
 == Description ==
 
@@ -28,6 +28,7 @@ Give your team precise, bounded editing: let them fix the copy that should chang
 * Lock a whole page from front-end editing with a single checkbox
 * Lock individual blocks or whole sections, using the block's own Lock option (padlock) or a CSS class. Locks cover everything nested inside and are enforced on save, not just hidden in the UI
 * Edits are recorded as native WordPress block notes, so there's an audit trail
+* A central **Site changes** screen (Tools menu) lists every front-end edit across the whole site — what changed, where, by whom and when — with filters by user, page, block type and date, plus search and CSV export
 * Admin settings to choose which block types are editable
 * Option to restrict chosen roles to front-end-only editing (no wp-admin access)
 * Secure — only users with edit permissions see the editing UI
@@ -61,6 +62,11 @@ Only logged-in users who already have permission to edit the post. The editing U
 Yes. You can lock a whole page (a checkbox in the "Front-End Editing" box when editing the page), or lock a single block/section using the block's own Lock option (the padlock in its Options menu) or by adding the CSS class "fie-no-edit" in its Advanced panel. A locked block, and everything nested inside it, becomes read-only on the front end. Locks are enforced when saving, so they can't be bypassed.
 
 == Changelog ==
+
+= 0.8 =
+* New: a central "Site changes" screen under the Tools menu that gathers every front-end edit across the whole site into one filterable, searchable list — what changed, where, by whom and when. Read-only, for editors and admins. Export the current view to CSV.
+* Front-end edits now store structured data (page, block type, old/new text, user) so the new screen can filter and search them. Existing notes are backfilled once on upgrade.
+* Fixed a brief flash of the editing toolbar and dialogs when a page first loads.
 
 = 0.7.1 =
 * Updated the plugin description to reflect that you can now edit text, links, buttons and images from the front end.

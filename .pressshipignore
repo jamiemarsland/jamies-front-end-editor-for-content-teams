@@ -9,3 +9,7 @@
 # Repo-only dev docs — keep in git, never ship to WordPress.org.
 RELEASE.md
 GITHUB-RELEASE-NOTES.md
+
+# Demo-only seeder (used via the blueprint), never shipped.
+demo
+demo/**
